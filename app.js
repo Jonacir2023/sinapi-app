@@ -52,7 +52,7 @@ async function loadDB(){
     const raw=pako.ungzip(gz);
     db=new SQL.Database(raw);
     const ref=db.exec("SELECT valor FROM meta WHERE chave='referencia'")[0].values[0][0];
-    $('#refLabel').textContent='Ref. '+ref+' · 27 UFs · não desonerado';
+    $('#refLabel').textContent='Ref. '+ref+' · 27 UFs';
     // popular filtro de grupos
     const grps=db.exec("SELECT DISTINCT TRIM(REPLACE(grupo,' - continuação','')) g FROM composicoes WHERE grupo IS NOT NULL ORDER BY g")[0].values;
     const gf=$('#grpFilter');
@@ -88,16 +88,21 @@ function renderResults(){
        FROM composicoes c
        LEFT JOIN custos_uf cu ON cu.codigo=c.codigo AND cu.uf='${uf}'
        ${where.length?'WHERE '+where.join(' AND '):''}
-       ORDER BY (cu.custo IS NULL), c.codigo LIMIT 60`;
+       ORDER BY (cu.custo IS NULL), c.codigo LIMIT 30`;
   const res=db.exec(sql,p);
   if(!res.length||!res[0].values.length){box.innerHTML='<div class="empty"><b>Nada encontrado</b>Ajuste o termo ou o grupo.</div>';return;}
   box.innerHTML=res[0].values.map(([cod,desc,un,g,custo])=>{
     const inOrc=orc.itens.some(i=>i.codigo===cod);
     const costHtml=custo!=null?`<span class="cost">${BRL.format(custo)}<small> /${un}</small></span>`:`<span class="no-cost">SEM CUSTO · ${uf}</span>`;
+    const rows=getItens(cod);
+    const expHtml=rows.length?`<div class="expand on"><table>
+      <thead><tr><th>T</th><th>Cód</th><th>Descrição</th><th>Coef</th><th>Unit</th><th>Parc</th></tr></thead>
+      <tbody>${rows.map(([tp,ci,di,ui,co,unit])=>{const parc=unit!=null?co*unit:null;return `<tr><td class="ti">${tp[0]}</td><td>${ci}</td><td class="d">${di}<span class="ti"> ${ui}</span></td><td>${NUM(co)}</td><td>${unit!=null?NUM(unit,2):'—'}</td><td>${parc!=null?NUM(parc,2):'—'}</td></tr>`;}).join('')}</tbody></table></div>`:'';
     return `<div class="result">
       <div class="top"><span class="cod">${cod}</span><span class="un">${un}</span></div>
       <div class="desc">${desc}</div>
       <div class="grp">${g||''}</div>
+      ${expHtml}
       <div class="foot">${costHtml}
         <button class="btn-add ${inOrc?'done':''}" data-cod="${cod}" ${custo==null?'disabled style="opacity:.4"':''}>${inOrc?'✓ no orç.':'+ Adicionar'}</button>
       </div></div>`;
