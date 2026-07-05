@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0a0e14">
+<title>SINAPI Orçamento</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="SINAPI">
+<style>
+:root{
+  --bg:#0a0e14; --surface:#121822; --surface2:#1a2230; --line:#243040;
+  --ink:#e6edf3; --ink-dim:#8b98a8; --ink-faint:#5a6675;
+  --accent:#f5a623; --accent-dim:#3a2f18;
+  --ok:#3fb950; --warn:#d29922; --err:#f85149;
+  --mono:'SF Mono',ui-monospace,'Roboto Mono',Menlo,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.4;overscroll-behavior:none}
+body{padding-bottom:env(safe-area-inset-bottom)}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right}
+
+header{position:sticky;top:0;z-index:50;background:var(--bg);border-bottom:1px solid var(--line);padding:calc(env(safe-area-inset-top) + 10px) 14px 10px}
+.hrow{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.logo{font-weight:700;font-size:17px;letter-spacing:-0.02em}
+.logo span{color:var(--accent)}
+.ref{font-family:var(--mono);font-size:11px;color:var(--ink-faint)}
+.uf-pick{display:flex;align-items:center;gap:6px;background:var(--surface2);border:1px solid var(--line);border-radius:8px;padding:5px 10px}
+.uf-pick select{background:transparent;border:none;color:var(--accent);font-family:var(--mono);font-weight:700;font-size:15px;outline:none}
+.uf-pick label{font-size:10px;color:var(--ink-faint);text-transform:uppercase;letter-spacing:0.08em}
+
+.tabs{display:flex;gap:0;border-bottom:1px solid var(--line);background:var(--bg);position:sticky;top:0;z-index:40}
+.tab{flex:1;padding:12px 8px;text-align:center;font-size:13px;font-weight:600;color:var(--ink-dim);background:none;border:none;border-bottom:2px solid transparent;cursor:pointer}
+.tab.on{color:var(--accent);border-bottom-color:var(--accent)}
+
+main{padding:12px 14px 90px}
+.view{display:none}.view.on{display:block}
+
+.search-bar{position:relative;margin-bottom:10px}
+.search-bar input{width:100%;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px;color:var(--ink);font-size:16px;outline:none}
+.search-bar input:focus{border-color:var(--accent)}
+.filters{display:flex;gap:8px;margin-bottom:12px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:2px}
+.filters select{flex:1;min-width:0;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:9px 10px;color:var(--ink);font-size:13px;outline:none}
+
+.loading{text-align:center;padding:40px 20px;color:var(--ink-dim)}
+.spinner{width:28px;height:28px;border:3px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 14px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.bar{height:4px;background:var(--surface2);border-radius:2px;overflow:hidden;margin-top:10px}
+.bar>i{display:block;height:100%;background:var(--accent);width:0;transition:width .2s}
+
+.result{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:8px}
+.result .top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.result .cod{font-family:var(--mono);font-size:12px;color:var(--accent);font-weight:700}
+.result .un{font-family:var(--mono);font-size:11px;color:var(--ink-faint);background:var(--surface2);padding:2px 6px;border-radius:4px}
+.result .desc{font-size:13px;margin:6px 0;color:var(--ink)}
+.result .foot{display:flex;justify-content:space-between;align-items:center;margin-top:8px}
+.result .cost{font-family:var(--mono);font-size:15px;font-weight:700}
+.result .cost small{font-size:10px;color:var(--ink-faint);font-weight:400}
+.result .grp{font-size:10px;color:var(--ink-faint);text-transform:uppercase;letter-spacing:0.05em}
+.no-cost{color:var(--err);font-size:11px;font-family:var(--mono)}
+.btn-add{background:var(--accent);color:#0a0e14;border:none;border-radius:7px;padding:7px 14px;font-weight:700;font-size:13px;cursor:pointer;font-family:var(--sans)}
+.btn-add:active{opacity:.7}
+.btn-add.done{background:var(--ok)}
+
+.empty{text-align:center;padding:50px 20px;color:var(--ink-faint)}
+.empty b{display:block;color:var(--ink-dim);font-size:15px;margin-bottom:6px}
+
+/* Orçamento */
+.orc-head{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:12px}
+.orc-head .field{display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line)}
+.orc-head .field:last-child{border-bottom:none}
+.orc-head label{font-size:12px;color:var(--ink-dim)}
+.orc-head input{background:var(--surface2);border:1px solid var(--line);border-radius:6px;padding:6px 10px;color:var(--ink);font-family:var(--mono);text-align:right;width:120px;outline:none}
+.orc-head input:focus{border-color:var(--accent)}
+.orc-head input.name{width:170px;text-align:left;font-family:var(--sans)}
+
+.item{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:11px;margin-bottom:8px}
+.item .top{display:flex;justify-content:space-between;gap:8px}
+.item .cod{font-family:var(--mono);font-size:11px;color:var(--accent);font-weight:700}
+.item .desc{font-size:12px;margin:5px 0;color:var(--ink-dim);line-height:1.35}
+.item .grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:8px}
+.item .cell{background:var(--surface2);border-radius:6px;padding:6px 8px}
+.item .cell label{display:block;font-size:9px;color:var(--ink-faint);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px}
+.item .cell input{width:100%;background:transparent;border:none;color:var(--ink);font-family:var(--mono);font-size:13px;text-align:right;outline:none;font-variant-numeric:tabular-nums}
+.item .cell.tot{background:var(--accent-dim)}
+.item .cell.tot .v{font-family:var(--mono);font-size:14px;font-weight:700;color:var(--accent);text-align:right}
+.item .cell.edited label::after{content:' *';color:var(--warn)}
+.item .rm{background:none;border:none;color:var(--err);font-size:18px;padding:0 4px;cursor:pointer;line-height:1}
+.item .un-tag{font-family:var(--mono);font-size:10px;color:var(--ink-faint)}
+
+.totbar{position:fixed;bottom:0;left:0;right:0;background:var(--surface);border-top:1px solid var(--line);padding:12px 14px calc(env(safe-area-inset-bottom) + 12px);z-index:45}
+.totbar .line{display:flex;justify-content:space-between;font-size:12px;color:var(--ink-dim);margin-bottom:3px}
+.totbar .line.grand{font-size:18px;color:var(--ink);font-weight:700;margin-top:4px;margin-bottom:0}
+.totbar .line.grand .num{color:var(--accent)}
+.totbar .actions{display:flex;gap:8px;margin-top:10px}
+.totbar button{flex:1;padding:11px;border-radius:8px;border:1px solid var(--line);background:var(--surface2);color:var(--ink);font-weight:600;font-size:13px;cursor:pointer;font-family:var(--sans)}
+.totbar button.primary{background:var(--accent);color:#0a0e14;border-color:var(--accent)}
+.totbar button:active{opacity:.7}
+
+/* Salvos */
+.saved-card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:10px}
+.saved-card .info b{display:block;font-size:14px;margin-bottom:3px}
+.saved-card .info small{font-family:var(--mono);font-size:11px;color:var(--ink-faint)}
+.saved-card .val{font-family:var(--mono);font-weight:700;color:var(--accent);font-size:14px}
+.saved-card .acts{display:flex;gap:6px}
+.saved-card button{background:var(--surface2);border:1px solid var(--line);border-radius:6px;padding:6px 10px;color:var(--ink);font-size:12px;cursor:pointer}
+.saved-card button.del{color:var(--err)}
+
+.toast{position:fixed;bottom:100px;left:50%;transform:translateX(-50%);background:var(--surface2);border:1px solid var(--line);color:var(--ink);padding:10px 18px;border-radius:8px;font-size:13px;z-index:100;opacity:0;transition:opacity .2s;pointer-events:none;box-shadow:0 4px 20px rgba(0,0,0,.5)}
+.toast.show{opacity:1}
+
+/* Desdobramento expandível */
+.expand{margin-top:8px;border-top:1px dashed var(--line);padding-top:8px;display:none}
+.expand.on{display:block}
+.expand table{width:100%;font-size:11px;border-collapse:collapse}
+.expand th{text-align:left;color:var(--ink-faint);font-weight:500;font-size:9px;text-transform:uppercase;padding:3px 4px;border-bottom:1px solid var(--line)}
+.expand td{padding:4px;border-bottom:1px solid var(--surface2);font-family:var(--mono);font-variant-numeric:tabular-nums}
+.expand td.d{font-family:var(--sans);color:var(--ink-dim);white-space:normal}
+.expand .ti{color:var(--ink-faint);font-size:9px}
+.toggle-exp{background:none;border:1px solid var(--line);color:var(--ink-dim);font-size:11px;padding:4px 10px;border-radius:6px;cursor:pointer;margin-top:8px;width:100%}
+</style>
+</head>
+<body>
+<header>
+  <div class="hrow">
+    <div class="logo">SINAPI<span>·</span>orç</div>
+    <div class="uf-pick">
+      <label>UF</label>
+      <select id="ufSel"></select>
+    </div>
+  </div>
+  <div class="ref mono" id="refLabel">carregando base…</div>
+</header>
+
+<div class="tabs">
+  <button class="tab on" data-view="buscar">Buscar</button>
+  <button class="tab" data-view="orcamento">Orçamento <span id="itemCount"></span></button>
+  <button class="tab" data-view="salvos">Salvos</button>
+</div>
+
+<main>
+  <!-- BUSCAR -->
+  <section class="view on" id="v-buscar">
+    <div id="dbLoading" class="loading">
+      <div class="spinner"></div>
+      <div>Carregando base SINAPI…</div>
+      <div class="bar"><i id="dlBar"></i></div>
+      <div class="ref mono" id="dlText" style="margin-top:8px"></div>
+    </div>
+    <div id="searchUI" style="display:none">
+      <div class="search-bar">
+        <input type="search" id="q" placeholder="Código ou descrição (ex: 103368, alvenaria vedação)" autocomplete="off" enterkeyhint="search">
+      </div>
+      <div class="filters">
+        <select id="grpFilter"><option value="">Todos os grupos</option></select>
+      </div>
+      <div id="results"></div>
+    </div>
+  </section>
+
+  <!-- ORÇAMENTO -->
+  <section class="view" id="v-orcamento">
+    <div class="orc-head">
+      <div class="field"><label>Obra / descrição</label><input class="name" id="orcNome" placeholder="Sem título" maxlength="60"></div>
+      <div class="field"><label>UF da execução</label><span class="mono" id="orcUf" style="color:var(--accent);font-weight:700"></span></div>
+      <div class="field"><label>BDI (%)</label><input type="number" id="bdi" value="0" min="0" max="100" step="0.01" inputmode="decimal"></div>
+    </div>
+    <div id="orcItems"></div>
+    <div id="orcEmpty" class="empty"><b>Orçamento vazio</b>Busque composições e adicione.</div>
+  </section>
+
+  <!-- SALVOS -->
+  <section class="view" id="v-salvos">
+    <div id="savedList"></div>
+    <div id="savedEmpty" class="empty"><b>Nenhum orçamento salvo</b>Salve um orçamento para reabrir depois.</div>
+  </section>
+</main>
+
+<div class="totbar" id="totbar" style="display:none">
+  <div class="line"><span>Custo direto</span><span class="num" id="tDireto">R$ 0,00</span></div>
+  <div class="line"><span>BDI <span id="tBdiPct">0%</span></span><span class="num" id="tBdi">R$ 0,00</span></div>
+  <div class="line grand"><span>TOTAL</span><span class="num" id="tGrand">R$ 0,00</span></div>
+  <div class="actions">
+    <button id="btnSalvar">Salvar</button>
+    <button id="btnXlsx">XLSX</button>
+    <button class="primary" id="btnPdf">PDF</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
