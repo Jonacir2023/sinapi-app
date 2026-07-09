@@ -16,7 +16,7 @@ function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show'
 // UF selector
 const ufSel=$('#ufSel');
 UFS.forEach(u=>{const o=document.createElement('option');o.value=u;o.textContent=u;if(u==='MG')o.selected=true;ufSel.appendChild(o);});
-ufSel.onchange=()=>{uf=ufSel.value;orc.uf=uf;$('#orcUf').textContent=uf;renderResults();recalcOrc();toast('UF: '+uf);};
+ufSel.onchange=()=>{uf=ufSel.value;orc.uf=uf;$('#orcUf').textContent=uf;renderResults();renderConsulta();recalcOrc();toast('UF: '+uf);};
 $('#orcUf').textContent=uf;
 
 // tabs
@@ -94,20 +94,28 @@ function renderResults(){
   box.innerHTML=res[0].values.map(([cod,desc,un,g,custo])=>{
     const inOrc=orc.itens.some(i=>i.codigo===cod);
     const costHtml=custo!=null?`<span class="cost">${BRL.format(custo)}<small> /${un}</small></span>`:`<span class="no-cost">SEM CUSTO · ${uf}</span>`;
-    const rows=getItens(cod);
-    const expHtml=rows.length?`<div class="expand on"><table>
-      <thead><tr><th>T</th><th>Cód</th><th>Descrição</th><th>Coef</th><th>Unit</th><th>Parc</th></tr></thead>
-      <tbody>${rows.map(([tp,ci,di,ui,co,unit])=>{const parc=unit!=null?co*unit:null;return `<tr><td class="ti">${tp[0]}</td><td>${ci}</td><td class="d">${di}<span class="ti"> ${ui}</span></td><td>${NUM(co)}</td><td>${unit!=null?NUM(unit,2):'—'}</td><td>${parc!=null?NUM(parc,2):'—'}</td></tr>`;}).join('')}</tbody></table></div>`:'';
-    return `<div class="result">
+    return `<div class="result" data-cod="${cod}">
       <div class="top"><span class="cod">${cod}</span><span class="un">${un}</span></div>
       <div class="desc">${desc}</div>
       <div class="grp">${g||''}</div>
-      ${expHtml}
+      <button class="toggle-exp" data-cod="${cod}">▼ ver composição</button>
+      <div class="expand" data-exp="${cod}"></div>
       <div class="foot">${costHtml}
         <button class="btn-add ${inOrc?'done':''}" data-cod="${cod}" ${custo==null?'disabled style="opacity:.4"':''}>${inOrc?'✓ no orç.':'+ Adicionar'}</button>
       </div></div>`;
   }).join('');
   box.querySelectorAll('.btn-add:not([disabled])').forEach(b=>b.onclick=()=>addItem(+b.dataset.cod));
+  box.querySelectorAll('.toggle-exp').forEach(b=>b.onclick=()=>{
+    const cod=+b.dataset.cod;
+    const exp=box.querySelector(`.expand[data-exp="${cod}"]`);
+    if(exp.classList.contains('on')){exp.classList.remove('on');b.textContent='▼ ver composição';return;}
+    if(!exp.dataset.loaded){
+      const rows=getItens(cod);
+      exp.innerHTML=rows.length?`<table><thead><tr><th>T</th><th>Cód</th><th>Descrição</th><th>Coef</th><th>Unit</th><th>Parc</th></tr></thead><tbody>${rows.map(([tp,ci,di,ui,co,unit])=>{const parc=unit!=null?co*unit:null;return `<tr><td class="ti">${tp[0]}</td><td>${ci}</td><td class="d">${di}<span class="ti"> ${ui}</span></td><td>${NUM(co)}</td><td>${unit!=null?NUM(unit,2):'—'}</td><td>${parc!=null?NUM(parc,2):'—'}</td></tr>`;}).join('')}</tbody></table>`:'<div class="ti" style="padding:6px">Sem itens detalhados.</div>';
+      exp.dataset.loaded='1';
+    }
+    exp.classList.add('on');b.textContent='▲ ocultar composição';
+  });
 }
 
 // ---------- orçamento ----------
@@ -193,13 +201,61 @@ $('#orcNome').oninput=()=>{orc.nome=$('#orcNome').value;saveDraft();};
 
 function updateCount(){const n=orc.itens.length;$('#itemCount').textContent=n?`(${n})`:'';}
 
+// ---------- consulta técnica ----------
+let ctTimer=null;
+if($('#qc'))$('#qc').addEventListener('input',()=>{clearTimeout(ctTimer);ctTimer=setTimeout(renderConsulta,220);});
+
+function renderConsulta(){
+  if(!db||!$('#qc'))return;
+  const raw=$('#qc').value.trim();
+  const out=$('#consultaOut');
+  if(raw.length<2){out.innerHTML='<div class="empty"><b>Consulta técnica</b>Digite código ou descrição.</div>';return;}
+  const isCode=/^\d+$/.test(raw);
+  let where=[],p=[];
+  if(isCode){where.push("c.codigo LIKE ?");p.push(raw+'%');}
+  else{raw.toUpperCase().split(/\s+/).filter(Boolean).forEach(t=>{where.push("UPPER(c.descricao) LIKE ?");p.push('%'+t+'%');});}
+  const sql=`SELECT c.codigo,c.descricao,c.unidade,TRIM(REPLACE(c.grupo,' - continuação','')) grp,c.situacao,cu.custo
+    FROM composicoes c LEFT JOIN custos_uf cu ON cu.codigo=c.codigo AND cu.uf='${uf}'
+    WHERE ${where.join(' AND ')} ORDER BY (cu.custo IS NULL),c.codigo LIMIT 8`;
+  const res=db.exec(sql,p);
+  if(!res.length||!res[0].values.length){out.innerHTML='<div class="empty"><b>Não encontrado</b>Ajuste o termo.</div>';return;}
+  out.innerHTML=res[0].values.map(([cod,desc,un,g,situ,custo])=>{
+    const rows=getItens(cod).map(([tp,ci,di,ui,co,unit])=>({tp,ci,di,ui,co,unit,parc:unit!=null?co*unit:null}))
+      .sort((a,b)=>(b.parc||0)-(a.parc||0));
+    const soma=rows.reduce((s,r)=>s+(r.parc||0),0);
+    const semPreco=rows.filter(r=>r.parc==null).length;
+    const diff=custo!=null?Math.abs(soma-custo):null;
+    const validHtml=custo==null
+      ?`<div class="valid warn">SEM CUSTO oficial em ${uf} — soma calculada: ${BRL.format(soma)}</div>`
+      :(diff<=Math.max(0.05,custo*0.01)
+        ?`<div class="valid ok">Σ itens ${BRL.format(soma)} ≈ oficial ${BRL.format(custo)} · validado${semPreco?` · ${semPreco} item(ns) sem preço`:''}</div>`
+        :`<div class="valid warn">Σ itens ${BRL.format(soma)} ≠ oficial ${BRL.format(custo)}${semPreco?` · ${semPreco} item(ns) sem preço`:''}</div>`);
+    return `<div class="ct-card">
+      <div class="head">
+        <span class="cod">${cod}</span><span class="un">${un}</span>
+        <div class="desc">${desc}</div>
+        <div class="grp">${g||''} · ${uf}</div>
+        <div class="custo-big">${custo!=null?BRL.format(custo):'SEM CUSTO'}<small> /${un} · ref. 05/2026</small></div>
+      </div>
+      <table>
+        <thead><tr><th>T</th><th>Cód</th><th>Descrição</th><th>Und</th><th>Coef.</th><th>Preço Unit.</th><th>C. Parcial</th></tr></thead>
+        <tbody>
+          ${rows.map(r=>`<tr><td class="ti">${r.tp[0]}</td><td>${r.ci}</td><td class="d">${r.di}</td><td>${r.ui}</td><td>${NUM(r.co)}</td><td>${r.unit!=null?NUM(r.unit,2):'—'}</td><td>${r.parc!=null?NUM(r.parc,2):'—'}</td></tr>`).join('')}
+          <tr class="soma"><td colspan="6">Σ CUSTO TOTAL /${un}</td><td>${NUM(soma,2)}</td></tr>
+        </tbody>
+      </table>
+      ${validHtml}
+    </div>`;
+  }).join('');
+}
+
 // ---------- IndexedDB (salvos + draft) ----------
 let idb=null;
 function openIDB(){return new Promise((res,rej)=>{const r=indexedDB.open('sinapi_orc',1);r.onupgradeneeded=e=>{const d=e.target.result;if(!d.objectStoreNames.contains('orcamentos'))d.createObjectStore('orcamentos',{keyPath:'id'});if(!d.objectStoreNames.contains('draft'))d.createObjectStore('draft',{keyPath:'k'});};r.onsuccess=e=>{idb=e.target.result;res();};r.onerror=e=>rej(e);});}
 function saveDraft(){if(!idb)return;const tx=idb.transaction('draft','readwrite');tx.objectStore('draft').put({k:'current',orc});}
 function loadDraft(){if(!idb)return;const tx=idb.transaction('draft','readonly');const rq=tx.objectStore('draft').get('current');rq.onsuccess=()=>{if(rq.result&&rq.result.orc&&rq.result.orc.itens.length){orc=rq.result.orc;uf=orc.uf;ufSel.value=uf;renderOrc();recalcOrc();updateCount();}};}
 
-function saveOrc(){
+function doSave(){
   if(!orc.itens.length){toast('Orçamento vazio');return;}
   const id='orc_'+Date.now();
   const direto=orc.itens.reduce((s,i)=>s+i.custoUnit*i.qtd,0);
@@ -208,6 +264,30 @@ function saveOrc(){
   const tx=idb.transaction('orcamentos','readwrite');tx.objectStore('orcamentos').put(rec);
   tx.oncomplete=()=>toast('Orçamento salvo');
 }
+
+// preview antes de salvar
+function openPreview(){
+  if(!orc.itens.length){toast('Orçamento vazio');return;}
+  const direto=orc.itens.reduce((s,i)=>s+i.custoUnit*i.qtd,0);
+  const total=direto*(1+orc.bdi/100);
+  $('#pvMeta').textContent=`${orc.uf} · ${orc.itens.length} comp · ${BRL.format(total)}`;
+  $('#pvBody').innerHTML=orc.itens.map(it=>{
+    const rows=getItens(it.codigo);
+    const sub=it.custoUnit*it.qtd;
+    return `<div class="pv-comp">
+      <div class="h"><span class="c">${it.codigo} <span class="ti">/${it.un}</span></span><span class="s">${BRL.format(sub)}</span></div>
+      <div class="d">${it.desc}</div>
+      <div class="ti mono" style="font-size:10px;margin-bottom:4px">Qtd ${it.qtd} × ${BRL.format(it.custoUnit)}${it.edited?' (editado)':''}</div>
+      <table><tbody>${rows.map(([tp,ci,di,ui,co,unit])=>{const parc=unit!=null?co*unit:null;return `<tr><td class="ti">${tp[0]}</td><td>${ci}</td><td class="d">${di}</td><td>${NUM(co)}</td><td>${unit!=null?NUM(unit,2):'—'}</td><td>${parc!=null?NUM(parc,2):'—'}</td></tr>`;}).join('')}</tbody></table>
+    </div>`;
+  }).join('');
+  $('#previewModal').classList.add('on');
+}
+function closePreview(){$('#previewModal').classList.remove('on');}
+
+$('#btnSalvar').onclick=openPreview;
+$('#pvVoltar').onclick=closePreview;
+$('#pvSalvar').onclick=()=>{doSave();closePreview();};
 function renderSaved(){
   const tx=idb.transaction('orcamentos','readonly');const rq=tx.objectStore('orcamentos').getAll();
   rq.onsuccess=()=>{
@@ -231,7 +311,6 @@ function renderSaved(){
     box.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{const tx2=idb.transaction('orcamentos','readwrite');tx2.objectStore('orcamentos').delete(b.dataset.del);tx2.oncomplete=()=>{renderSaved();toast('Excluído');};});
   };
 }
-$('#btnSalvar').onclick=saveOrc;
 
 // ---------- export ----------
 function buildRows(){
@@ -246,27 +325,66 @@ function buildRows(){
   return rows;
 }
 
-$('#btnXlsx').onclick=()=>{
+$('#btnXlsx').onclick=async()=>{
   if(!orc.itens.length){toast('Orçamento vazio');return;}
   const direto=orc.itens.reduce((s,i)=>s+i.custoUnit*i.qtd,0);
-  const wb=XLSX.utils.book_new();
-  const aoa=[
-    ['ORÇAMENTO SINAPI — '+(orc.nome||'Sem título')],
-    ['UF: '+orc.uf,'Ref. 05/2026 não desonerado','BDI: '+orc.bdi+'%'],
-    [],
-    ['Tipo','Código','Descrição','Unid.','Coef.','Custo Unit. (R$)','Quant.','Subtotal (R$)']
-  ];
+  const wb=new ExcelJS.Workbook();
+  const ws=wb.addWorksheet('Orçamento');
+  ws.columns=[{width:12},{width:9},{width:60},{width:7},{width:12},{width:14},{width:10},{width:14}];
+
+  const fillYellow={type:'pattern',pattern:'solid',fgColor:{argb:'FFFFFF00'}};
+  const fillBlue={type:'pattern',pattern:'solid',fgColor:{argb:'FF00B0F0'}};
+  const fillGreen={type:'pattern',pattern:'solid',fgColor:{argb:'FF92D050'}};
+  const bold={bold:true};
+
+  // L1 titulo
+  ws.addRow(['ORÇAMENTO SINAPI — '+(orc.nome||'Sem título')]);
+  // L2 uf
+  ws.addRow(['UF: '+orc.uf,'Ref. 05/2026 não desonerado','BDI: '+orc.bdi+'%']);
+  ws.addRow([]);
+  // L4 cabecalho
+  ws.addRow(['Tipo','Código','Descrição','Unid.','Coef.','Custo Unit. (R$)','Quant.','Subtotal (R$)']);
+
+  const compRows=[];
   buildRows().forEach(r=>{
-    aoa.push([r.item?('  '+r.tipo[0]):r.tipo,r.cod,(r.item?'   ':'')+r.desc+(r.edited?' [preço editado]':''),r.un,r.coef===''?'':+(+r.coef).toFixed(7),r.unit==null?'':+(+r.unit).toFixed(2),r.qtd==='' ?'':r.qtd,r.sub==null?'':+r.sub.toFixed(2)]);
+    const row=ws.addRow([
+      r.item?('  '+r.tipo[0]):r.tipo, r.cod,
+      (r.item?'   ':'')+r.desc+(r.edited?' [preço editado]':''), r.un,
+      r.coef===''?'':+(+r.coef).toFixed(7),
+      r.unit==null?'':+(+r.unit).toFixed(2),
+      r.qtd===''?'':r.qtd,
+      r.sub==null?'':+r.sub.toFixed(2)
+    ]);
+    if(!r.item)compRows.push(row.number);
   });
-  aoa.push([]);
-  aoa.push(['','','','','','','Custo direto',+direto.toFixed(2)]);
-  aoa.push(['','','','','','','BDI '+orc.bdi+'%',+(direto*orc.bdi/100).toFixed(2)]);
-  aoa.push(['','','','','','','TOTAL',+(direto*(1+orc.bdi/100)).toFixed(2)]);
-  const ws=XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols']=[{wch:12},{wch:9},{wch:60},{wch:7},{wch:12},{wch:14},{wch:10},{wch:14}];
-  XLSX.utils.book_append_sheet(wb,ws,'Orçamento');
-  XLSX.writeFile(wb,(orc.nome||'orcamento').replace(/[^\w]/g,'_')+'_'+orc.uf+'.xlsx');
+  ws.addRow([]);
+  ws.addRow(['','','','','','','Custo direto',+direto.toFixed(2)]);
+  ws.addRow(['','','','','','','BDI '+orc.bdi+'%',+(direto*orc.bdi/100).toFixed(2)]);
+  const totalRow=ws.addRow(['','','','','','','TOTAL',+(direto*(1+orc.bdi/100)).toFixed(2)]);
+
+  const last=ws.rowCount;
+  // grade continua A1:H(last) + borda media
+  for(let r=1;r<=last;r++){
+    for(let c=1;c<=8;c++){
+      ws.getCell(r,c).border={top:{style:'thin'},left:{style:'thin'},bottom:{style:'thin'},right:{style:'thin'}};
+    }
+  }
+  // L1 amarelo + negrito
+  for(let c=1;c<=8;c++){ws.getCell(1,c).fill=fillYellow;ws.getCell(1,c).font=bold;}
+  // L2 azul + negrito
+  for(let c=1;c<=8;c++){ws.getCell(2,c).fill=fillBlue;ws.getCell(2,c).font=bold;}
+  // L4 cabecalho negrito
+  for(let c=1;c<=8;c++)ws.getCell(4,c).font=bold;
+  // linhas de composicao verde + negrito
+  compRows.forEach(rn=>{for(let c=1;c<=8;c++){ws.getCell(rn,c).fill=fillGreen;ws.getCell(rn,c).font=bold;}});
+  // total negrito
+  for(let c=1;c<=8;c++)ws.getCell(totalRow.number,c).font=bold;
+
+  const buf=await wb.xlsx.writeBuffer();
+  const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download=(orc.nome||'orcamento').replace(/[^\w]/g,'_')+'_'+orc.uf+'.xlsx';a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
   toast('XLSX gerado');
 };
 
